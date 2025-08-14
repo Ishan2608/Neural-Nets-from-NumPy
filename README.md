@@ -24,4 +24,5 @@ Contributions to this project are welcome! If you have any ideas for improvement
 
 ## Acknowledgements
 
-- The code in this repository is based on concepts and techniques from various resources and tutorials on neural networks and deep learning, partculary by ChatGPT.
+- The code in this repository is based on concepts and techniques learned from various resources and tutorials on neural networks and deep learning.
+- A notable source was ChatGPT which help me learn about building neural networks from scratch because of which I was able to build this code repository.
