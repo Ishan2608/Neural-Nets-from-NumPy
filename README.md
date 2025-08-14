@@ -1,6 +1,7 @@
 # Neural Network from Scratch with NumPy
 
-This repository contains code for building and training a neural network from scratch using NumPy. The neural network is trained on the MNIST dataset for handwritten digit recognition.
+- This repository contains code for building and training a neural network from scratch using NumPy. The neural network is trained on the MNIST dataset for handwritten digit recognition.
+- Another code it contains takes a person through the general idea of building a neural network for classical Regression and Classification tasks. The file name is ANN_Core_Implementation.ipynb
 
 ## Overview
 
