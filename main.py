@@ -543,33 +543,272 @@ def build_ui():
             with gr.Tab("How It Works"):
                 gr.Markdown(
                     """
-                    ### How the Network is Built (Zero Frameworks)
-
-                    Everything here is implemented using **NumPy only** — no TensorFlow, no PyTorch.
-
-                    **Forward Pass**
-                    Each layer computes `Z = X · W + b`, then applies an activation function to get `A`.
-                    The output of one layer becomes the input of the next.
-
-                    **Loss Functions**
-                    - Regression → Mean Squared Error (MSE): average of squared differences between actual and predicted values.
-                    - Classification → Binary Cross-Entropy: measures how far the predicted probability is from the true label (0 or 1).
-
-                    **Backward Pass (Backpropagation)**
-                    The gradient of the loss is computed with respect to every weight and bias using the chain rule, working backwards from the output layer to the input layer.
-
-                    **Weight Update (Gradient Descent)**
-                    `W = W - α · dL/dW` where α is the learning rate.
-                    Each weight is nudged in the direction that reduces the loss.
-
-                    **Initialisation**
-                    He initialisation: `W ~ N(0, √(2/fan_in))`.
-                    This keeps the signal from exploding or vanishing through many ReLU layers.
-
-                    **Architecture**
-                    - Input neurons = number of features in the dataset.
-                    - Hidden layers = your choice (ReLU activation throughout).
-                    - Output neuron = 1 (linear for regression, sigmoid for classification).
+                    # How This Neural Network Works — From Scratch
+ 
+                    Everything in this app is built using **NumPy only**. No TensorFlow. No PyTorch. No Keras.
+                    Every single operation — matrix multiplication, gradient computation, weight update — is written explicitly.
+                    This makes it an ideal reference for understanding what deep learning frameworks are actually doing under the hood.
+ 
+                    ---
+ 
+                    ## 1. Data Preprocessing
+ 
+                    Raw data cannot be fed directly into a neural network. Features often have very different scales —
+                    for example, population counts in the thousands sitting alongside decimal fractions. If left unscaled,
+                    larger-valued features will dominate the gradient updates and make training unstable or extremely slow.
+ 
+                    **Standardisation** (also called Z-score normalisation) fixes this:
+ 
+                    ```
+                    X_scaled = (X - mean(X_train)) / std(X_train)
+                    ```
+ 
+                    Every feature is shifted to have mean = 0 and standard deviation = 1.
+                    The mean and std are computed on the **training set only**, then applied to both train and test sets.
+                    This is critical — using test set statistics would constitute data leakage.
+ 
+                    For **regression**, the target values are also standardised because the output neuron produces
+                    values around 0, so the target needs to live in a similar range for MSE to behave well.
+                    After training, predictions are de-standardised back to the original scale:
+                    ```
+                    y_original = y_scaled * std(y_train) + mean(y_train)
+                    ```
+ 
+                    For **classification**, the target is already 0 or 1, so no scaling is needed.
+ 
+                    ---
+ 
+                    ## 2. Network Architecture
+ 
+                    A neural network is a sequence of **layers**. Each layer holds a set of neurons, and every neuron
+                    in one layer is connected to every neuron in the next (this is called a fully-connected or dense layer).
+ 
+                    The architecture is defined by a list of sizes, for example `[8, 64, 32, 16, 1]`:
+                    - `8` — input neurons (one per feature)
+                    - `64, 32, 16` — hidden layer neuron counts (your choice)
+                    - `1` — output neuron (single prediction)
+ 
+                    Each connection between layers has a **weight** (how strongly one neuron influences the next)
+                    and each neuron has a **bias** (a constant offset that shifts the output).
+ 
+                    ---
+ 
+                    ## 3. Weight Initialisation — He Initialisation
+ 
+                    Before training starts, every weight must be given a starting value. Setting them all to zero fails —
+                    every neuron would compute the same thing and learn identically forever (the symmetry problem).
+                    Setting them too large causes the network output to explode. Too small and gradients vanish.
+ 
+                    **He initialisation** solves this for ReLU networks:
+ 
+                    ```
+                    W ~ Normal(mean=0, std=sqrt(2 / fan_in))
+                    ```
+ 
+                    where `fan_in` is the number of neurons feeding into this layer.
+                    The factor of 2 compensates for the fact that ReLU kills roughly half of all values (the negative ones),
+                    effectively halving the variance. He init keeps the variance of activations roughly constant across layers,
+                    which enables stable gradient flow from the very first epoch.
+ 
+                    Biases are initialised to zero — this is safe because the random weights already break symmetry.
+ 
+                    ---
+ 
+                    ## 4. Activation Functions
+ 
+                    Activation functions introduce **non-linearity**. Without them, stacking multiple layers would
+                    collapse into a single linear transformation — no matter how many layers you add.
+                    Non-linearity is what allows a network to learn curved decision boundaries and complex patterns.
+ 
+                    **ReLU (Rectified Linear Unit)** — used in all hidden layers:
+                    ```
+                    ReLU(x) = max(0, x)
+                    ```
+                    Simple and highly effective. If the input is positive, it passes through unchanged.
+                    If it's negative, it becomes zero. This sparsity (many neurons outputting zero) tends to make
+                    networks train faster and generalise better. Its derivative is either 0 or 1, which makes
+                    backpropagation computationally cheap.
+ 
+                    **Sigmoid** — used in the output layer for classification:
+                    ```
+                    sigmoid(x) = 1 / (1 + e^(-x))
+                    ```
+                    Squashes any real number into the range (0, 1), making it directly interpretable as a probability.
+                    Output > 0.5 → predicted positive class (benign). Output ≤ 0.5 → predicted negative class (malignant).
+ 
+                    **Linear (Identity)** — used in the output layer for regression:
+                    ```
+                    linear(x) = x
+                    ```
+                    No transformation. The neuron just outputs its weighted sum directly, which is appropriate
+                    when the target is a continuous real number with no bounded range.
+ 
+                    ---
+ 
+                    ## 5. The Forward Pass
+ 
+                    The forward pass is how the network makes a prediction. It flows left to right through every layer.
+ 
+                    For each layer `i`:
+                    ```
+                    Z[i] = A[i-1] · W[i] + b[i]     ← weighted sum (linear step)
+                    A[i] = activation(Z[i])            ← non-linear step
+                    ```
+ 
+                    Where:
+                    - `A[i-1]` is the output of the previous layer (or the raw input X for the first layer)
+                    - `W[i]` is the weight matrix of shape `(neurons_in_prev_layer, neurons_in_this_layer)`
+                    - `b[i]` is the bias vector of shape `(1, neurons_in_this_layer)`
+                    - `Z[i]` is the pre-activation (weighted sum), cached for use in backpropagation
+                    - `A[i]` is the post-activation output
+ 
+                    Both `Z` and `A` are cached for every layer during the forward pass.
+                    Backpropagation will need them to compute gradients.
+ 
+                    The final layer's output `A[last]` is the network's prediction `y_pred`.
+ 
+                    ---
+ 
+                    ## 6. Loss Functions
+ 
+                    The loss function measures how wrong the prediction is. Training is the process of minimising this number.
+ 
+                    **Mean Squared Error (MSE)** — for regression:
+                    ```
+                    MSE = (1/n) * Σ (y_true - y_pred)²
+                    ```
+                    Squares the error so larger mistakes are penalised much more heavily than small ones.
+                    The gradient of MSE with respect to the prediction is:
+                    ```
+                    dL/dy_pred = (2/n) * (y_pred - y_true)
+                    ```
+ 
+                    **Binary Cross-Entropy (BCE)** — for classification:
+                    ```
+                    BCE = -(1/n) * Σ [ y_true * log(y_pred) + (1 - y_true) * log(1 - y_pred) ]
+                    ```
+                    This measures the difference between two probability distributions — the predicted probabilities
+                    and the true labels. When the prediction is confident and correct (e.g. y_pred = 0.99, y_true = 1),
+                    the loss is near zero. When it's confident and wrong, the loss becomes very large.
+ 
+                    A small epsilon (1e-15) is clipped into y_pred to prevent `log(0)` which would give negative infinity.
+ 
+                    When BCE is paired with a sigmoid output, their gradients combine elegantly:
+                    ```
+                    dL/dZ_output = (y_pred - y_true) / n
+                    ```
+                    This combined gradient is what's used at the output layer during backpropagation.
+ 
+                    ---
+ 
+                    ## 7. The Backward Pass — Backpropagation
+ 
+                    Backpropagation is the algorithm for computing how much each weight contributed to the loss.
+                    It uses the **chain rule of calculus** to propagate the gradient of the loss backwards through every layer.
+ 
+                    The key insight: the gradient of the loss with respect to a weight deep in the network
+                    is the product of all the gradients along the path from that weight to the output.
+ 
+                    **Starting at the output layer:**
+ 
+                    For regression (MSE + linear output):
+                    ```
+                    dL/dZ_out = (2/n) * (y_pred - y_true)
+                    ```
+ 
+                    For classification (BCE + sigmoid output, combined):
+                    ```
+                    dL/dZ_out = (y_pred - y_true) / n
+                    ```
+ 
+                    Then for the output layer's weights and biases:
+                    ```
+                    dL/dW_out = A_prev.T · dL/dZ_out
+                    dL/db_out = sum(dL/dZ_out, axis=0)
+                    ```
+ 
+                    **Propagating through each hidden layer** (going backwards, from last hidden to first):
+                    ```
+                    dL/dA_current = dL/dZ_next · W_next.T           ← how much this layer's output affected the loss
+                    dL/dZ_current = dL/dA_current * activation'(Z)  ← pass through the activation derivative
+                    dL/dW_current = A_prev.T · dL/dZ_current        ← gradient for this layer's weights
+                    dL/db_current = sum(dL/dZ_current, axis=0)      ← gradient for this layer's biases
+                    ```
+ 
+                    The `activation'(Z)` for ReLU is simply 1 where Z > 0 and 0 everywhere else — a very cheap operation.
+ 
+                    ---
+ 
+                    ## 8. Parameter Update — Gradient Descent
+ 
+                    Once gradients are known, every weight and bias is updated by taking a small step
+                    in the direction that reduces the loss:
+ 
+                    ```
+                    W = W - α * dL/dW
+                    b = b - α * dL/db
+                    ```
+ 
+                    `α` (alpha) is the **learning rate** — a hyperparameter you control with the slider.
+                    It decides the size of each update step.
+ 
+                    - Too large → the loss oscillates or diverges (overshooting the minimum)
+                    - Too small → training takes extremely long to converge
+                    - A value around 0.001 is a solid default for most problems here
+ 
+                    This is **vanilla gradient descent** — one update per full pass over the data (one epoch).
+                    Production systems typically use mini-batch gradient descent or adaptive optimisers like Adam,
+                    but the core principle is identical.
+ 
+                    ---
+ 
+                    ## 9. The Training Loop
+ 
+                    One complete training run repeats these four steps for every epoch:
+ 
+                    ```
+                    for epoch in 1 to N:
+                        y_pred, caches = forward(X_train, weights, biases)
+                        loss           = compute_loss(y_train, y_pred)
+                        gradients      = backward(X_train, y_train, y_pred, caches, weights)
+                        weights, biases= update(weights, biases, gradients, learning_rate)
+                    ```
+ 
+                    The loss should decrease steadily across epochs. A flat or increasing loss means the learning
+                    rate is too high, the network is too shallow, or the data needs better preprocessing.
+ 
+                    ---
+ 
+                    ## 10. Evaluation
+ 
+                    After training, the network is evaluated on the **test set** — data it has never seen.
+                    This gives an honest estimate of how well it generalises.
+ 
+                    **Regression metrics:**
+                    - **MSE** (on standardised scale) — training loss reference
+                    - **MAE** (Mean Absolute Error, original scale) — average absolute mistake in the original units (e.g. $100k)
+                    - **R² Score** — proportion of variance in the target explained by the model. R² = 1.0 is perfect. R² = 0 means the model is no better than predicting the mean every time.
+ 
+                    **Classification metrics:**
+                    - **Accuracy** — percentage of test samples correctly classified
+                    - **Confusion Matrix** — breaks down predictions into True Positives, True Negatives, False Positives, and False Negatives, revealing which class the model struggles with
+ 
+                    ---
+ 
+                    ## 11. Datasets
+ 
+                    **California Housing** (Regression)
+                    20,640 housing blocks from the 1990 California census. Each row describes a block group
+                    with 8 features: median income, house age, average rooms, average bedrooms, population,
+                    average occupancy, latitude, and longitude. The target is the median house value in units of $100,000.
+                    This is a well-studied benchmark regression dataset.
+ 
+                    **Breast Cancer Wisconsin** (Classification)
+                    569 cell nucleus measurements from fine needle aspirate (FNA) biopsies.
+                    30 features describe properties of the cell nuclei: radius, texture, perimeter, area, smoothness,
+                    compactness, concavity, concave points, symmetry, and fractal dimension — each measured as mean,
+                    standard error, and worst value. Target: 0 = malignant, 1 = benign.
+                    This is a classic binary classification benchmark in medical machine learning.
                     """
                 )
 
