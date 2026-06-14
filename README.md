@@ -1,418 +1,309 @@
 # Building an Artificial Neural Network from Scratch
-## A Comprehensive Tutorial for Learning and Practice
+A comprehensive implementation of a fully-connected Artificial Neural Network using NumPy only — no TensorFlow, no PyTorch, no Keras. Every component, from weight initialisation to backpropagation, is written explicitly so you can see exactly what deep learning frameworks do under the hood.
 
-![Output of Completed Training](./docs/output1.PNG)
-![Output of Data Exploration](./docs/output2.PNG)
+- Neural Network Built Completely by me without any outside help.
+- Gradio UI Code written by Claude.
 
----
+## Table of Contents
 
-## 📚 Table of Contents
 1. [Overview](#overview)
 2. [Learning Objectives](#learning-objectives)
 3. [Prerequisites](#prerequisites)
 4. [Project Structure](#project-structure)
-5. [Core Concepts Explained](#core-concepts-explained)
-6. [Step-by-Step Implementation Guide](#step-by-step-implementation-guide)
-7. [Practice Exercises](#practice-exercises)
-8. [Troubleshooting](#troubleshooting)
-9. [Further Learning](#further-learning)
+5. [Setup and Run](#setup-and-run)
+6. [Screenshots](#screenshots)
+7. [How to Use the App](#how-to-use-the-app)
+8. [Core Concepts Explained](#core-concepts-explained)
+9. [Practice Exercises](#practice-exercises)
+10. [Troubleshooting](#troubleshooting)
+11. [Further Learning](#further-learning)
 
----
+## Overview
 
-## 🎯 Overview
+This project provides a complete implementation of an Artificial Neural Network built from scratch. You will learn how neural networks work at the lowest level by building every piece yourself, then interact with the trained network through a clean Gradio UI.
 
-This tutorial provides a **complete implementation of an Artificial Neural Network (ANN) from scratch** using only NumPy. You'll learn how neural networks work "under the hood" by building every component yourself, without relying on high-level frameworks like TensorFlow or PyTorch.
+### What You Will Build
 
-### What You'll Build
 - A fully functional multi-layer neural network
-- Support for both **regression** and **classification** tasks
-- Custom activation functions (ReLU, Sigmoid)
+- Support for both regression and classification tasks
+- Custom activation functions (ReLU, Sigmoid, Linear)
 - Forward and backward propagation algorithms
-- Training loop with loss tracking
+- A training loop with loss tracking and live progress
+- An interactive UI to configure, train, and evaluate the network
 
----
-
-## 🎓 Learning Objectives
+## Learning Objectives
 
 By completing this tutorial, you will:
 
-1. **Understand the mathematics** behind neural networks
-2. **Implement forward propagation** to make predictions
-3. **Implement backward propagation** to learn from errors
-4. **Master the chain rule** for gradient computation
-5. **Build intuition** about weight matrices and bias vectors
-6. **Train models** for real-world datasets
-7. **Debug and optimize** neural network performance
+1. Understand the mathematics behind neural networks
+2. Implement forward propagation to make predictions
+3. Implement backward propagation to learn from errors
+4. Master the chain rule for gradient computation
+5. Build intuition about weight matrices and bias vectors
+6. Train models on real-world datasets
+7. Debug and optimise neural network performance
 
----
-
-## 📋 Prerequisites
+## Prerequisites
 
 ### Required Knowledge
-- **Python**: Intermediate level (functions, classes, control flow)
-- **NumPy**: Basic operations (arrays, matrix multiplication, broadcasting)
-- **Linear Algebra**: Matrix multiplication, dot products
-- **Calculus**: Derivatives, chain rule (basic understanding)
-- **Machine Learning**: Basic concepts (training/testing, loss functions)
+
+- Python: Intermediate level (functions, control flow, NumPy)
+- Linear Algebra: Matrix multiplication, dot products
+- Calculus: Derivatives and the chain rule (basic understanding)
+- Machine Learning: Basic concepts such as train/test splits and loss functions
 
 ### Required Libraries
+
 ```python
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
 from sklearn.datasets import fetch_california_housing, load_breast_cancer
 from sklearn.model_selection import train_test_split
+import gradio as gr
 ```
 
----
-
-## 📁 Project Structure
+## Project Structure
 
 ```
-ANN_Core_Implementation.ipynb
-├── 1. Importing Libraries
-├── 2. Load Datasets
-│   ├── 2.1 Dataset for Regression (California Housing)
-│   └── 2.2 Dataset for Classification (Breast Cancer)
-├── 3. The Building Blocks of the ANN
-│   ├── 3.1 Weights and Bias Matrix
-│   ├── 3.2 Activation Functions (ReLU, Sigmoid)
-│   ├── 3.3 Loss Functions (MSE, Binary Cross-Entropy)
-│   ├── 3.4 Forward Propagation
-│   ├── 3.5 Backward Propagation
-│   ├── 3.6 Initialize and Update Parameters
-│   ├── 3.7 Training Neural Networks
-│   └── 3.8 Prediction Function
-├── 4. Regression Example
-└── 5. Classification Example
+.
+├── network.py                  # Core ANN: activations, forward, backward, training
+├── main.py                     # Gradio UI: configure, train, evaluate, explore data
+├── requirements.txt            # All dependencies
+├── README.md                   # This file
+└── docs/
+    ├── output1.PNG             # Screenshot: Training results tab
+    └── output2.PNG             # Screenshot: Data exploration tab
 ```
 
----
+### File Responsibilities
 
-## 🧠 Core Concepts Explained
+`network.py` contains every mathematical component of the neural network: activation functions and their derivatives, loss functions, He initialisation, the forward pass, the backward pass, the gradient descent update step, the training loop, and evaluation helpers for both regression and classification.
 
-### 1. **Weights and Bias Matrix**
+`main.py` imports from `network.py` and builds the Gradio UI. It handles data loading, preprocessing, user input, progress reporting, plot generation, and metrics display. Running this file launches the app.
 
-#### Simple Explanation
-Think of weights as "importance multipliers" and biases as "starting values." Each connection between neurons has a weight that determines how much influence one neuron has on another.
+## Setup and Run
 
-#### Technical Details
-- For **N** input features and **M** neurons in the next layer:
-  - Weight matrix **W** has shape `(N, M)`
-  - Bias vector **b** has shape `(1, M)`
-- Element `W[i][j]` represents the weight from input `i` to neuron `j`
-- Initialization uses **He initialization** for better training with ReLU
+### Step 1: Clone the repository
 
-```python
-# Example: 8 inputs → 16 neurons
-W = np.random.randn(8, 16) * np.sqrt(2.0 / 8)
-b = np.zeros((1, 16))
+```bash
+git clone <your-repo-url>
+cd <repo-folder>
 ```
 
-### 2. **Activation Functions**
+### Step 2: Create and activate a virtual environment
 
-#### ReLU (Rectified Linear Unit)
-**Simple**: "Keep positive values, zero out negative values"
+```bash
+python -m venv .venv
+```
+
+On macOS and Linux:
+```bash
+source .venv/bin/activate
+```
+
+On Windows:
+```bash
+.venv\Scripts\activate
+```
+
+### Step 3: Install dependencies
+
+```bash
+pip install numpy pandas matplotlib scikit-learn gradio
+```
+
+Or, if a `requirements.txt` is already present:
+
+```bash
+pip install -r requirements.txt
+```
+
+### Step 4: Generate requirements.txt (first-time setup only)
+
+```bash
+pip freeze > requirements.txt
+```
+
+### Step 5: Run the app
+
+```bash
+python main.py
+```
+
+The terminal will print a local URL, typically `http://127.0.0.1:7860`. Open it in your browser.
+
+## Screenshots
+
+### Training Results
+
+![Output of Completed Training](./docs/output1.PNG)
+
+After configuring the network and clicking Train, you will see a live progress bar followed by three diagnostic plots and a metrics summary. For regression these are: loss curve, actual vs predicted scatter, and residual distribution. For classification: loss curve, predicted probability distribution, and a confusion matrix.
+
+### Data Exploration
+
+![Output of Data Exploration](./docs/output2.PNG)
+
+The Explore Data tab lets you inspect the first 10 rows of whichever dataset is selected. Switch between California Housing (regression) and Breast Cancer Wisconsin (classification) using the dropdown. The table updates instantly.
+
+## How to Use the App
+
+The app has three tabs: Train Network, Explore Data, and How It Works.
+
+### Train Network Tab
+
+This is the main tab. Use it to configure and run training.
+
+**Task dropdown** — Select Regression or Classification. This determines which dataset is loaded and which loss function is used. Regression uses the California Housing dataset with MSE loss. Classification uses the Breast Cancer Wisconsin dataset with Binary Cross-Entropy loss.
+
+**Hidden Layer Sizes** — Enter a comma-separated list of neuron counts for the hidden layers, for example `64, 32, 16`. The input and output dimensions are set automatically based on the dataset. You can make the network as shallow as `32` (one hidden layer) or as deep as `128, 64, 64, 32, 16` (five hidden layers). All hidden layers use ReLU activation.
+
+**Learning Rate** — Controls how large each gradient descent step is. The slider ranges from 0.0001 to 0.01. A value of 0.001 is a reliable starting point for most configurations. If the loss curve is unstable or oscillating, lower it. If training is very slow to converge, try increasing it slightly.
+
+**Epochs** — The number of full passes through the training data. The slider ranges from 100 to 2000. More epochs give the network more opportunity to learn but take longer. Watch the loss curve: if it has already flattened before the epoch count is reached, the extra epochs are not contributing.
+
+**Train button** — Starts training. A live progress bar shows the current epoch and loss value. Once complete, three plots appear on the right along with a metrics table showing architecture summary, parameter count, training time, and test-set performance.
+
+### Explore Data Tab
+
+Select a dataset from the dropdown to preview its first 10 rows in a scrollable table. The table updates automatically when you change the dropdown. Use this tab to understand the feature names, value ranges, and target column before training.
+
+### How It Works Tab
+
+A detailed reference covering all 11 components of the network: data preprocessing, architecture, He initialisation, activation functions, forward pass, loss functions, backpropagation, gradient descent, the training loop, evaluation metrics, and dataset descriptions. Read this tab alongside the code in `network.py` for the clearest understanding.
+
+## Core Concepts Explained
+
+### Weights and Bias Matrix
+
+Think of weights as importance multipliers and biases as constant offsets. Each connection between neurons has a weight that determines how strongly one neuron influences the next.
+
+For N input features feeding into M neurons, the weight matrix W has shape `(N, M)` and the bias vector b has shape `(1, M)`. He initialisation sets starting weights to:
+
+```
+W = Normal(mean=0, std=sqrt(2 / N))
+```
+
+The factor of 2 compensates for ReLU zeroing out roughly half of all values.
+
+### Activation Functions
+
+**ReLU** is used in all hidden layers:
 ```python
 def relu(x):
-    return np.maximum(0, x)  # If x > 0, return x; else return 0
+    return np.maximum(0, x)
 ```
+Positive values pass through unchanged. Negative values become zero. This non-linearity is what allows the network to learn patterns that cannot be captured by a straight line.
 
-**Why use it?** 
-- Fast to compute
-- Helps network learn non-linear patterns
-- Prevents vanishing gradients
-
-#### Sigmoid
-**Simple**: "Squash any number into range 0 to 1"
+**Sigmoid** is used at the output layer for classification:
 ```python
 def sigmoid(x):
     return 1 / (1 + np.exp(-x))
 ```
+Squashes any real number into the range (0, 1), making the output directly interpretable as a probability.
 
-**Why use it?**
-- Perfect for binary classification (output is a probability)
-- Smooth and differentiable
+**Linear (identity)** is used at the output layer for regression — the neuron outputs its weighted sum with no transformation, allowing any real-valued prediction.
 
-### 3. **Forward Propagation**
+### Forward Propagation
 
-#### Simple Explanation
-Forward propagation is like passing information through a assembly line:
-1. Take inputs
-2. Multiply by weights and add biases
-3. Apply activation function
-4. Pass result to next layer
-5. Repeat until you reach the output
-
-#### The Math
-For each layer **i**:
+For each layer i, two operations happen in sequence:
 ```
-Z^(i) = A^(i-1) × W^(i) + b^(i)    # Weighted sum
-A^(i) = activation(Z^(i))           # Apply activation
+Z[i] = A[i-1] · W[i] + b[i]    (weighted sum)
+A[i] = activation(Z[i])          (non-linear transformation)
+```
+The output of each layer becomes the input of the next. Both Z and A are cached at every layer because backpropagation needs them.
+
+### Loss Functions
+
+**MSE** for regression:
+```
+Loss = (1/n) * sum((y_true - y_pred)^2)
 ```
 
-Where:
-- **A^(i-1)**: Output from previous layer (input for first layer)
-- **W^(i)**: Weight matrix for current layer
-- **b^(i)**: Bias vector for current layer
-- **Z^(i)**: Weighted sum before activation
-- **A^(i)**: Output after activation
-
-### 4. **Backward Propagation**
-
-#### Simple Explanation
-Backward propagation is how the network learns from mistakes:
-1. Calculate how wrong the prediction was (error)
-2. Work backwards through layers
-3. Figure out how much each weight contributed to the error
-4. Adjust weights to reduce error next time
-
-#### The Chain Rule
-The mathematical foundation is the chain rule from calculus:
-
+**Binary Cross-Entropy** for classification:
 ```
-∂Loss/∂W^(i) = ∂Loss/∂A^(i) × ∂A^(i)/∂Z^(i) × ∂Z^(i)/∂W^(i)
+Loss = -(1/n) * sum(y_true * log(y_pred) + (1 - y_true) * log(1 - y_pred))
 ```
 
-**Breaking it down:**
-- `∂Loss/∂A^(i)`: How does loss change with activation?
-- `∂A^(i)/∂Z^(i)`: How does activation change with weighted sum? (activation derivative)
-- `∂Z^(i)/∂W^(i)`: How does weighted sum change with weights? (input from previous layer)
+### Backward Propagation
 
-### 5. **Loss Functions**
-
-#### Mean Squared Error (MSE) - For Regression
-```python
-Loss = (1/n) × Σ(y_true - y_pred)²
+Starting at the output and working backwards, the gradient of the loss with respect to every weight is computed using the chain rule. Each layer's weight gradient is:
 ```
-Measures average squared difference between predictions and actual values.
-
-#### Binary Cross-Entropy - For Classification
-```python
-Loss = -(1/n) × Σ[y_true × log(y_pred) + (1-y_true) × log(1-y_pred)]
+dL/dW[i] = A[i-1].T · dL/dZ[i]
 ```
-Measures how well predicted probabilities match true labels.
+where `dL/dZ[i]` is obtained by multiplying the upstream gradient by the local activation derivative.
 
----
+### Gradient Descent
 
-## 🛠️ Step-by-Step Implementation Guide
-
-### Step 1: Prepare Your Data
-
-```python
-# Load dataset
-from sklearn.datasets import fetch_california_housing
-data = fetch_california_housing()
-X, y = data.data, data.target
-
-# Split into train/test
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42
-)
-
-# Standardize features (very important!)
-X_mean = np.mean(X_train, axis=0)
-X_std = np.std(X_train, axis=0)
-X_train = (X_train - X_mean) / (X_std + 1e-8)
-X_test = (X_test - X_mean) / (X_std + 1e-8)
-
-# Standardize targets (for regression)
-y_mean = np.mean(y_train)
-y_std = np.std(y_train)
-y_train = (y_train - y_mean) / (y_std + 1e-8)
-y_test = (y_test - y_mean) / (y_std + 1e-8)
+After gradients are computed, every weight and bias is updated:
 ```
-
-### Step 2: Define Network Architecture
-
-```python
-# Example: 8 inputs → 16 → 32 → 64 → 32 → 16 → 8 → 1 output
-layers = [8, 16, 32, 64, 32, 16, 8, 1]
-
-# Define activations for each layer (except input)
-activations = [relu, relu, relu, relu, relu, relu, lambda x: x]  # Linear output
-activations_derivs = [relu_derivative] * 6 + [lambda x: np.ones_like(x)]
+W = W - learning_rate * dL/dW
+b = b - learning_rate * dL/db
 ```
+This nudges every parameter in the direction that reduces the loss. Repeat for every epoch.
 
-### Step 3: Train the Network
+## Practice Exercises
 
-```python
-weights, biases, losses = train_NN(
-    X_train, y_train,
-    layers=layers,
-    activations=activations,
-    activations_derivs=activations_derivs,
-    alpha=0.001,          # Learning rate
-    epochs=1000,          # Number of training iterations
-    problem_type='regression',
-    print_loss=True
-)
-```
+### Beginner
 
-### Step 4: Make Predictions
+1. Modify the hidden layer sizes. Start with a single layer `32`, then try `64, 32`, then `128, 64, 32`. Observe how training time and test metrics change.
+2. Experiment with the learning rate. Try 0.0001, 0.001, and 0.005. Watch how the slope and stability of the loss curve change.
+3. Compare shallow vs deep networks with the same total number of neurons. For example, `256` vs `64, 64, 64, 64`.
 
-```python
-# Get predictions (standardized)
-predictions_standardized = predict(X_test, weights, biases, activations)
+### Intermediate
 
-# Convert back to original scale
-predictions = predictions_standardized * y_std + y_mean
-```
+4. Open `network.py` and read the `backward` function. Trace through each line and match it to the chain rule formula in the How It Works tab.
+5. Add a validation split inside `network.py`. Compute and return validation loss at each epoch alongside training loss, then plot both curves.
+6. Implement early stopping: stop training if the loss has not improved by more than 1e-4 for 50 consecutive epochs.
 
----
+### Advanced
 
-## 💪 Practice Exercises
+7. Implement momentum: instead of using the raw gradient, accumulate a moving average of gradients and use that for the update.
+8. Add L2 regularisation: add a penalty term `lambda * sum(W^2)` to the loss and include the corresponding term `lambda * W` in the weight gradients.
+9. Extend the network to support multi-class classification using Softmax activation and categorical cross-entropy loss.
 
-### Beginner Level
+## Troubleshooting
 
-1. **Modify Network Depth**
-   - Start with 2 hidden layers
-   - Gradually increase to 4, then 6
-   - Observe how training time and accuracy change
+### Loss becomes NaN during training
 
-2. **Change Learning Rate**
-   - Try: 0.0001, 0.001, 0.01, 0.1
-   - Plot loss curves for each
-   - Find the optimal learning rate
+This usually means the learning rate is too high, causing weights to grow until operations overflow. Reduce the learning rate to 0.0001 or lower. If the problem persists, check whether the input data is properly standardised — unstandardised features with large magnitudes are a common cause.
 
-3. **Experiment with Activations**
-   - Replace some ReLU layers with Sigmoid
-   - Observe the effect on training
+### Loss is not decreasing
 
-### Intermediate Level
+The learning rate may be too low, or the network may be too shallow to capture the patterns in the data. Try increasing the learning rate slightly or adding more hidden layers and neurons. Also verify that the correct dataset is loaded for the selected task.
 
-4. **Add More Neurons**
-   - Double the neurons in each layer
-   - Compare training speed and accuracy
+### Loss decreases on training but test metrics are poor
 
-5. **Create a Validation Set**
-   - Split data into train/validation/test (60/20/20)
-   - Plot both training and validation loss
-   - Detect overfitting
+This is overfitting. The network has memorised the training data rather than learning generalisable patterns. Try reducing the number of neurons or hidden layers. Adding a validation split (see Practice Exercise 5) will make overfitting visible during training rather than only at evaluation time.
 
-6. **Early Stopping**
-   - Stop training when validation loss stops improving
-   - Prevent overfitting
+### App does not launch
 
-### Advanced Level
+Confirm the virtual environment is activated and that all dependencies are installed. Run `pip list` and verify that `gradio`, `numpy`, `scikit-learn`, `pandas`, and `matplotlib` are present. If Gradio reports a port conflict, add `server_port=7861` to `app.launch()` in `main.py`.
 
-7. **Implement Momentum**
-   - Add momentum to gradient descent
-   - Compare convergence speed
-
-8. **Add L2 Regularization**
-   - Penalize large weights
-   - Reduce overfitting
-
-9. **Build a Multi-Class Classifier**
-   - Modify for 3+ classes
-   - Implement Softmax activation
-   - Use categorical cross-entropy loss
-
----
-
-## 🔧 Troubleshooting
-
-### Problem: Loss is NaN
-
-**Causes:**
-- Learning rate too high
-- Weights exploding
-- Division by zero
-
-**Solutions:**
-```python
-# Reduce learning rate
-alpha = 0.0001
-
-# Add gradient clipping
-gradients = np.clip(gradients, -1, 1)
-
-# Check for NaN values
-if np.isnan(loss):
-    print("Warning: NaN detected!")
-```
-
-### Problem: Loss Not Decreasing
-
-**Causes:**
-- Learning rate too low
-- Poor weight initialization
-- Wrong activation functions
-
-**Solutions:**
-```python
-# Increase learning rate
-alpha = 0.01
-
-# Use He initialization
-W = np.random.randn(n_in, n_out) * np.sqrt(2.0 / n_in)
-
-# Try different activations
-```
-
-### Problem: Overfitting
-
-**Signs:**
-- Training loss decreases, validation loss increases
-- High accuracy on training, poor on test
-
-**Solutions:**
-```python
-# Add dropout (requires modification)
-# Reduce network complexity
-layers = [8, 16, 8, 1]  # Fewer/smaller layers
-
-# Get more training data
-# Add regularization
-```
-
----
-
-## 📖 Further Learning
+## Further Learning
 
 ### Recommended Next Steps
 
-1. **Implement Additional Features:**
-   - Batch normalization
-   - Dropout layers
-   - Different optimizers (Adam, RMSprop)
+After understanding this implementation, rebuild the same network in a framework to see how the abstractions map to what you wrote here:
 
-2. **Try Different Datasets:**
-   - MNIST (handwritten digits)
-   - Iris (multi-class classification)
-   - Your own custom dataset
+- TensorFlow / Keras: the `Dense` layer, `compile`, `fit` and `evaluate` methods correspond directly to the functions in `network.py`
+- PyTorch: `nn.Linear`, `forward` methods, and `optimizer.step()` map to the same mathematical steps
 
-3. **Learn Framework Implementation:**
-   - Rebuild this network in TensorFlow/Keras
-   - Rebuild in PyTorch
-   - Compare performance and ease of use
+### Concepts to Study Next
 
-### Key Concepts to Study
+- Gradient descent variants: SGD with momentum, RMSprop, Adam
+- Regularisation techniques: L1, L2, dropout, early stopping
+- Batch normalisation: stabilises training of very deep networks
+- Learning rate schedules: reduce the learning rate as training progresses
+- Advanced architectures: Convolutional Neural Networks (CNNs) for images, Recurrent Neural Networks (RNNs) for sequences, Transformers for language
 
-- **Gradient Descent Variants**: SGD, Mini-batch, Momentum, Adam
-- **Regularization Techniques**: L1, L2, Dropout, Early Stopping
-- **Advanced Architectures**: CNNs, RNNs, Transformers
-- **Optimization Theory**: Learning rate schedules, adaptive methods
+### Suggested Datasets to Try
 
-## 🎉 Congratulations!
+- MNIST: 70,000 handwritten digit images, 10-class classification
+- Iris: 150 samples, 4 features, 3-class classification — good for implementing Softmax
+- Your own tabular CSV: standardise the features, define a layer architecture, and train
 
-You've built a complete neural network from scratch! This foundational knowledge will serve you well as you explore more advanced deep learning concepts. Remember:
+## License and Attribution
 
-- **Practice regularly** - implement variations and experiment
-- **Understand the math** - don't just copy code
-- **Debug systematically** - check shapes, values, and gradients
-- **Keep learning** - neural networks are a vast field
-
-Happy learning! 🚀
-
----
-
-## 📝 License & Attribution
-
-This tutorial is for educational purposes. Feel free to use, modify, and share with attribution.
-
-**Author**: AI Neural Network Tutorial
-**Last Updated**: 2024
-**Version**: 1.0
+This project is for educational purposes. Free to use, modify, and share with attribution.
