@@ -1,6 +1,9 @@
 # Building an Artificial Neural Network from Scratch
 ## A Comprehensive Tutorial for Learning and Practice
 
+![Output of Completed Training](./docs/output1.PNG)
+![Output of Data Exploration](./docs/output2.PNG)
+
 ---
 
 ## 📚 Table of Contents
