@@ -3,12 +3,12 @@ network.py
 ----------
 Core neural network implementation: activations, loss functions,
 forward/backward passes, parameter initialization, training, and evaluation.
-All logic extracted and adapted from ANN_Core_Implementation.ipynb.
+Supports regression, binary classification and multiclass classification.
 """
 
 import numpy as np
 import pandas as pd
-from sklearn.datasets import fetch_california_housing, load_breast_cancer
+from sklearn.datasets import fetch_california_housing, load_breast_cancer, load_iris
 from sklearn.model_selection import train_test_split
 
 
@@ -62,7 +62,7 @@ def load_regression_data():
 
 def load_classification_data():
     """
-    Breast Cancer dataset.
+    Breast Cancer dataset (binary).
     Returns processed (standardised) train/test splits plus raw DataFrame.
     """
     breast_cancer = load_breast_cancer()
@@ -99,6 +99,44 @@ def load_classification_data():
     )
 
 
+def load_multiclass_data():
+    """
+    Iris dataset (3 classes).
+    Returns standardised splits, one-hot encoded targets, raw labels,
+    the DataFrame and the list of class names.
+    """
+    iris = load_iris()
+    df = pd.DataFrame(iris.data, columns=iris.feature_names)
+    df["target"] = iris.target
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        iris.data, iris.target, test_size=0.2, random_state=42, stratify=iris.target
+    )
+
+    X_mean = X_train.mean(axis=0)
+    X_std  = X_train.std(axis=0)
+    X_train_proc = (X_train - X_mean) / (X_std + 1e-8)
+    X_test_proc  = (X_test  - X_mean) / (X_std + 1e-8)
+
+    n_classes = len(iris.target_names)
+    y_train_proc = np.eye(n_classes)[y_train]
+    y_test_proc  = np.eye(n_classes)[y_test]
+
+    return (
+        X_train_proc, X_test_proc,
+        y_train_proc, y_test_proc,
+        y_train,      y_test,
+        df, list(iris.target_names)
+    )
+
+
+def split_indices(n, val_size=0.2, seed=42):
+    """Returns (train_idx, val_idx) for a random validation split."""
+    idx = np.random.default_rng(seed).permutation(n)
+    n_val = int(n * val_size)
+    return idx[n_val:], idx[:n_val]
+
+
 # ─────────────────────────────────────────────
 # 2. ACTIVATION FUNCTIONS
 # ─────────────────────────────────────────────
@@ -122,6 +160,11 @@ def linear(x):
 def linear_derivative(x):
     return np.ones_like(x)
 
+def softmax(x):
+    shifted = x - np.max(x, axis=1, keepdims=True)
+    e = np.exp(shifted)
+    return e / np.sum(e, axis=1, keepdims=True)
+
 
 # ─────────────────────────────────────────────
 # 3. LOSS FUNCTIONS
@@ -134,6 +177,10 @@ def binary_cross_entropy_loss(y_true, y_pred):
     epsilon = 1e-15
     y_pred = np.clip(y_pred, epsilon, 1 - epsilon)
     return -np.mean(y_true * np.log(y_pred) + (1 - y_true) * np.log(1 - y_pred))
+
+def categorical_cross_entropy_loss(y_true, y_pred):
+    y_pred = np.clip(y_pred, 1e-15, 1 - 1e-15)
+    return -np.mean(np.sum(y_true * np.log(y_pred), axis=1))
 
 
 # ─────────────────────────────────────────────
@@ -189,11 +236,10 @@ def backward(X, y_true, y_pred, caches, weights, activations_derivative, problem
 
     # ── Output layer gradient ──────────────────
     A_out = caches[num_layers - 1]["A"]
-    Z_out = caches[num_layers - 1]["Z"]
 
     if problem_type == "regression":
         dL_dZ_out = (A_out - y_true) * (2 / n_samples)
-    else:   # classification – BCE + sigmoid combined gradient
+    else:   # sigmoid+BCE and softmax+CCE share the same combined gradient
         dL_dZ_out = (A_out - y_true) / n_samples
 
     A_prev = caches[num_layers - 2]["A"] if num_layers > 1 else X
@@ -231,6 +277,17 @@ def update_parameters(weights, biases, gradients, learning_rate):
 # 8. TRAINING LOOP
 # ─────────────────────────────────────────────
 
+def _score(y_true, y_pred, problem_type):
+    """Accuracy for classification tasks, R2 for regression."""
+    if problem_type == "multiclass":
+        return float(np.mean(np.argmax(y_pred, axis=1) == np.argmax(y_true, axis=1)))
+    if problem_type == "classification":
+        return float(np.mean((y_pred >= 0.5).astype(int) == y_true))
+    ss_res = np.sum((y_true - y_pred) ** 2)
+    ss_tot = np.sum((y_true - np.mean(y_true)) ** 2)
+    return float(1 - ss_res / ss_tot)
+
+
 def train_network(
     X, y,
     layers,
@@ -238,52 +295,63 @@ def train_network(
     epochs=500,
     problem_type="regression",
     progress_callback=None,
+    X_val=None,
+    y_val=None,
 ):
     """
     Full training loop.
 
-    Parameters
-    ----------
-    X, y           : preprocessed NumPy arrays
-    layers         : list with neuron counts including input and output
-    learning_rate  : gradient-descent step size
-    epochs         : number of full passes over the data
-    problem_type   : 'regression' or 'classification'
-    progress_callback : optional callable(epoch, total, loss) for live updates
+    problem_type : 'regression', 'classification' or 'multiclass'
+    X_val, y_val : optional validation data, tracked every epoch
 
     Returns
     -------
-    weights, biases, loss_history  (loss recorded every epoch)
+    weights, biases, loss_history, activations, history
+    history keys: train_loss, val_loss, train_acc, val_acc
     """
-    # Build activation lists: ReLU for hidden layers, linear/sigmoid for output
+    n_hidden = len(layers) - 2
     if problem_type == "regression":
-        activations       = [relu        for _ in range(len(layers) - 2)] + [linear]
-        activations_derivs= [relu_derivative for _ in range(len(layers) - 2)] + [linear_derivative]
+        out_act, out_der = linear, linear_derivative
+    elif problem_type == "multiclass":
+        out_act, out_der = softmax, None
     else:
-        activations       = [relu        for _ in range(len(layers) - 2)] + [sigmoid]
-        activations_derivs= [relu_derivative for _ in range(len(layers) - 2)] + [sigmoid_derivative]
+        out_act, out_der = sigmoid, sigmoid_derivative
+    activations = [relu] * n_hidden + [out_act]
+    activations_derivs = [relu_derivative] * n_hidden + [out_der]
 
     weights, biases = initialize_parameters(layers)
-    y = y.reshape(-1, 1)
-    loss_history = []
+
+    y = y.reshape(len(y), -1)
+    loss_fn = {
+        "regression": mse_loss,
+        "classification": binary_cross_entropy_loss,
+        "multiclass": categorical_cross_entropy_loss,
+    }[problem_type]
+
+    has_val = X_val is not None
+    if has_val:
+        y_val = y_val.reshape(len(y_val), -1)
+
+    history = {"train_loss": [], "val_loss": [], "train_acc": [], "val_acc": []}
 
     for epoch in range(1, epochs + 1):
         y_pred, caches = forward(X, weights, biases, activations)
+        loss = loss_fn(y, y_pred)
+        history["train_loss"].append(float(loss))
+        history["train_acc"].append(_score(y, y_pred, problem_type))
 
-        if problem_type == "regression":
-            loss = mse_loss(y, y_pred)
-        else:
-            loss = binary_cross_entropy_loss(y, y_pred)
+        if has_val:
+            v_pred = predict(X_val, weights, biases, activations)
+            history["val_loss"].append(float(loss_fn(y_val, v_pred)))
+            history["val_acc"].append(_score(y_val, v_pred, problem_type))
 
         gradients = backward(X, y, y_pred, caches, weights, activations_derivs, problem_type)
         weights, biases = update_parameters(weights, biases, gradients, learning_rate)
 
-        loss_history.append(float(loss))
-
         if progress_callback:
             progress_callback(epoch, epochs, float(loss))
 
-    return weights, biases, loss_history, activations
+    return weights, biases, history["train_loss"], activations, history
 
 
 # ─────────────────────────────────────────────
@@ -316,9 +384,21 @@ def evaluate_regression(weights, biases, activations, X_test, y_test_proc, y_tes
 
 def evaluate_classification(weights, biases, activations, X_test, y_test_raw, threshold=0.5):
     """
-    Returns accuracy, and arrays of probs and binary predictions.
+    Returns accuracy, probabilities, binary predictions and true labels.
     """
     probs        = predict(X_test, weights, biases, activations).flatten()
     preds_binary = (probs >= threshold).astype(int)
-    accuracy     = float(np.mean(preds_binary == y_test_raw.flatten()))
-    return {"accuracy": accuracy, "probs": probs, "preds_binary": preds_binary}
+    y_true       = y_test_raw.flatten()
+    accuracy     = float(np.mean(preds_binary == y_true))
+    return {"accuracy": accuracy, "probs": probs, "preds_binary": preds_binary, "y_true": y_true}
+
+
+def evaluate_multiclass(weights, biases, activations, X_test, y_test_raw):
+    """
+    Returns accuracy, class probabilities, predicted classes and true labels.
+    """
+    probs  = predict(X_test, weights, biases, activations)
+    preds  = np.argmax(probs, axis=1)
+    y_true = y_test_raw.flatten()
+    accuracy = float(np.mean(preds == y_true))
+    return {"accuracy": accuracy, "probs": probs, "preds": preds, "y_true": y_true}

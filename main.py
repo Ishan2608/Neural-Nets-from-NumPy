@@ -14,13 +14,17 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import gradio as gr
+from sklearn.metrics import ConfusionMatrixDisplay
 
 from network import (
     load_regression_data,
     load_classification_data,
+    load_multiclass_data,
     train_network,
     evaluate_regression,
     evaluate_classification,
+    evaluate_multiclass,
+    split_indices,
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -28,6 +32,7 @@ from network import (
 # ─────────────────────────────────────────────────────────────────────────────
 _reg_data  = None
 _clf_data  = None
+_mc_data   = None
 
 def get_regression_data():
     global _reg_data
@@ -40,6 +45,12 @@ def get_classification_data():
     if _clf_data is None:
         _clf_data = load_classification_data()
     return _clf_data
+
+def get_multiclass_data():
+    global _mc_data
+    if _mc_data is None:
+        _mc_data = load_multiclass_data()
+    return _mc_data
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -83,6 +94,12 @@ def dataset_preview(problem_type):
             "**California Housing** — 20 640 rows, 8 features.  "
             "Target: median house value (in $100k)."
         )
+    elif problem_type == "Multiclass":
+        *_, df, _ = get_multiclass_data()
+        info = (
+            "**Iris** — 150 rows, 4 features.  "
+            "Target: 0 = setosa, 1 = versicolor, 2 = virginica."
+        )
     else:
         *_, df = get_classification_data()
         info = (
@@ -93,165 +110,87 @@ def dataset_preview(problem_type):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# TRAINING
+# PLOTS
 # ─────────────────────────────────────────────────────────────────────────────
-def run_training(problem_type, hidden_layers_str, learning_rate, epochs, progress=gr.Progress()):
-    """
-    Trains the network and returns all results / plots.
-    """
-    hidden = parse_hidden_layers(hidden_layers_str)
-
-    # ── Load data ────────────────────────────────
-    if problem_type == "Regression":
-        (X_train, X_test, y_train, y_test,
-         y_train_raw, y_test_raw, _, scaling) = get_regression_data()
-        input_dim    = X_train.shape[1]
-        output_dim   = 1
-        p_type       = "regression"
-        loss_label   = "MSE Loss"
-    else:
-        (X_train, X_test, y_train, y_test,
-         y_train_raw, y_test_raw, _) = get_classification_data()
-        input_dim  = X_train.shape[1]
-        output_dim = 1
-        p_type     = "classification"
-        loss_label = "Binary Cross-Entropy Loss"
-        scaling    = None
-
-    layers = [input_dim] + hidden + [output_dim]
-
-    # ── Progress tracking ─────────────────────────
-    loss_log   = []
-    epoch_log  = []
-    lock       = threading.Lock()
-
-    def callback(epoch, total, loss):
-        with lock:
-            loss_log.append(loss)
-            epoch_log.append(epoch)
-        pct = epoch / total
-        progress(pct, desc=f"Epoch {epoch}/{total}  |  Loss: {loss:.5f}")
-
-    # ── Train ─────────────────────────────────────
-    t0 = time.time()
-    Ws, Bs, loss_history, activations = train_network(
-        X_train, y_train,
-        layers=layers,
-        learning_rate=learning_rate,
-        epochs=int(epochs),
-        problem_type=p_type,
-        progress_callback=callback,
-    )
-    elapsed = time.time() - t0
-
-    # ── Evaluate ──────────────────────────────────
-    if p_type == "regression":
-        eval_res = evaluate_regression(
-            Ws, Bs, activations, X_test,
-            y_test, y_test_raw, scaling
-        )
-    else:
-        eval_res = evaluate_classification(
-            Ws, Bs, activations, X_test, y_test_raw
-        )
-
-    # ── Build plots ───────────────────────────────
-    fig = _make_plots(loss_history, eval_res, p_type, loss_label, layers)
-
-    # ── Metrics text ──────────────────────────────
-    arch_str = " → ".join(str(n) for n in layers)
-    metrics  = _metrics_markdown(eval_res, p_type, elapsed, arch_str, layers)
-
-    return fig, metrics
+def _new_fig(title, xlabel, ylabel):
+    fig, ax = plt.subplots(figsize=(6, 4.2), facecolor=DARK_BG)
+    ax.set_title(title)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    return fig, ax
 
 
-def _make_plots(loss_history, eval_res, p_type, loss_label, layers):
-    if p_type == "regression":
-        fig = plt.figure(figsize=(14, 4.5), facecolor=DARK_BG)
-        gs  = gridspec.GridSpec(1, 3, figure=fig, wspace=0.38)
-
-        # 1) Loss curve
-        ax0 = fig.add_subplot(gs[0])
-        ax0.plot(loss_history, color=ACCENT, linewidth=1.6)
-        ax0.set_title("Training Loss Curve")
-        ax0.set_xlabel("Epoch")
-        ax0.set_ylabel(loss_label)
-
-        # 2) Actual vs Predicted scatter (test set, up to 300 pts)
-        ax1 = fig.add_subplot(gs[1])
-        y_raw   = eval_res["y_test_raw"][:300]
-        p_raw   = eval_res["preds_raw"][:300]
-        ax1.scatter(y_raw, p_raw, alpha=0.45, s=14, color=ACCENT, edgecolors="none")
-        mn, mx = min(y_raw.min(), p_raw.min()), max(y_raw.max(), p_raw.max())
-        ax1.plot([mn, mx], [mn, mx], color=GREEN, linewidth=1.2, linestyle="--", label="Perfect fit")
-        ax1.set_title("Actual vs Predicted (Test)")
-        ax1.set_xlabel("Actual")
-        ax1.set_ylabel("Predicted")
-        ax1.legend(fontsize=7, facecolor=CARD_BG, labelcolor=TEXT)
-
-        # 3) Residuals
-        ax2 = fig.add_subplot(gs[2])
-        residuals = y_raw - p_raw
-        ax2.hist(residuals, bins=30, color=ACCENT, alpha=0.75, edgecolor=DARK_BG)
-        ax2.axvline(0, color=GREEN, linewidth=1.2, linestyle="--")
-        ax2.set_title("Residual Distribution (Test)")
-        ax2.set_xlabel("Residual  (Actual − Predicted)")
-        ax2.set_ylabel("Count")
-
-    else:   # classification
-        fig = plt.figure(figsize=(14, 4.5), facecolor=DARK_BG)
-        gs  = gridspec.GridSpec(1, 3, figure=fig, wspace=0.38)
-
-        # 1) Loss curve
-        ax0 = fig.add_subplot(gs[0])
-        ax0.plot(loss_history, color=ACCENT, linewidth=1.6)
-        ax0.set_title("Training Loss Curve")
-        ax0.set_xlabel("Epoch")
-        ax0.set_ylabel(loss_label)
-
-        # 2) Probability distribution
-        ax1 = fig.add_subplot(gs[1])
-        probs = eval_res["probs"]
-        y_raw = eval_res["preds_binary"]
-        ax1.hist(probs[y_raw == 1], bins=25, alpha=0.65, color=GREEN,
-                 label="Predicted Benign",  edgecolor=DARK_BG)
-        ax1.hist(probs[y_raw == 0], bins=25, alpha=0.65, color=RED_COLOR,
-                 label="Predicted Malignant", edgecolor=DARK_BG)
-        ax1.axvline(0.5, color=TEXT, linewidth=1.2, linestyle="--", label="Threshold = 0.5")
-        ax1.set_title("Predicted Probability Distribution")
-        ax1.set_xlabel("Sigmoid Output (Probability)")
-        ax1.set_ylabel("Count")
-        ax1.legend(fontsize=7, facecolor=CARD_BG, labelcolor=TEXT)
-
-        # 3) Confusion matrix
-        ax2 = fig.add_subplot(gs[2])
-        y_true_raw = eval_res["preds_binary"]   # reuse preds vs actuals trick below
-        # We need actuals — pass them via eval_res
-        y_actual   = eval_res.get("y_actual", eval_res["preds_binary"])  # fallback safe
-        preds_b    = eval_res["preds_binary"]
-
-        # We stored y_test_raw inside evaluate_classification via a wrapper below
-        _y_true = eval_res.get("y_true", preds_b)
-
-        tp = int(np.sum((_y_true == 1) & (preds_b == 1)))
-        tn = int(np.sum((_y_true == 0) & (preds_b == 0)))
-        fp = int(np.sum((_y_true == 0) & (preds_b == 1)))
-        fn = int(np.sum((_y_true == 1) & (preds_b == 0)))
-        cm = np.array([[tn, fp], [fn, tp]])
-
-        im = ax2.imshow(cm, cmap="Blues")
-        ax2.set_xticks([0, 1]); ax2.set_yticks([0, 1])
-        ax2.set_xticklabels(["Pred Malignant", "Pred Benign"], color=TEXT, fontsize=7.5)
-        ax2.set_yticklabels(["Actual Malignant", "Actual Benign"], color=TEXT, fontsize=7.5)
-        ax2.set_title("Confusion Matrix (Test)")
-        for (r, c), val in np.ndenumerate(cm):
-            ax2.text(c, r, str(val), ha="center", va="center",
-                     fontsize=14, color=TEXT, fontweight="bold")
-        plt.colorbar(im, ax=ax2, fraction=0.04)
-
+def _finish(fig):
     _style_fig(fig)
-    plt.tight_layout(pad=2.0)
+    fig.tight_layout(pad=1.5)
     return fig
+
+
+def _confusion_fig(cm, labels):
+    fig, ax = _new_fig("Confusion Matrix (Test)", "Predicted", "Actual")
+    ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=labels).plot(
+        ax=ax, cmap="Blues", colorbar=False
+    )
+    _style_fig(fig)
+    ax.grid(False)
+    fig.tight_layout(pad=1.5)
+    return fig
+
+
+def _make_plots(eval_res, p_type):
+    """Returns two figures; the second is None for multiclass."""
+    if p_type == "regression":
+        y_raw = eval_res["y_test_raw"][:300]
+        p_raw = eval_res["preds_raw"][:300]
+
+        fig_a, ax = _new_fig("Actual vs Predicted (Test)", "Actual", "Predicted")
+        ax.scatter(y_raw, p_raw, alpha=0.45, s=14, color=ACCENT, edgecolors="none")
+        mn, mx = min(y_raw.min(), p_raw.min()), max(y_raw.max(), p_raw.max())
+        ax.plot([mn, mx], [mn, mx], color=GREEN, linewidth=1.2, linestyle="--", label="Perfect fit")
+        ax.legend(fontsize=8, facecolor=CARD_BG, labelcolor=TEXT)
+
+        fig_b, ax = _new_fig("Residual Distribution (Test)", "Residual  (Actual - Predicted)", "Count")
+        ax.hist(y_raw - p_raw, bins=30, color=ACCENT, alpha=0.75, edgecolor=DARK_BG)
+        ax.axvline(0, color=GREEN, linewidth=1.2, linestyle="--")
+        return _finish(fig_a), _finish(fig_b)
+
+    if p_type == "multiclass":
+        names = eval_res["class_names"]
+        k = len(names)
+        cm = np.zeros((k, k), dtype=int)
+        np.add.at(cm, (eval_res["y_true"], eval_res["preds"]), 1)
+        return _confusion_fig(cm, names), None
+
+    # binary classification
+    probs, preds_b, y_true = eval_res["probs"], eval_res["preds_binary"], eval_res["y_true"]
+
+    fig_a, ax = _new_fig("Predicted Probability Distribution", "Sigmoid Output (Probability)", "Count")
+    ax.hist(probs[preds_b == 1], bins=25, alpha=0.65, color=GREEN,
+            label="Predicted Benign", edgecolor=DARK_BG)
+    ax.hist(probs[preds_b == 0], bins=25, alpha=0.65, color=RED_COLOR,
+            label="Predicted Malignant", edgecolor=DARK_BG)
+    ax.axvline(0.5, color=TEXT, linewidth=1.2, linestyle="--", label="Threshold = 0.5")
+    ax.legend(fontsize=8, facecolor=CARD_BG, labelcolor=TEXT)
+
+    tp = int(np.sum((y_true == 1) & (preds_b == 1)))
+    tn = int(np.sum((y_true == 0) & (preds_b == 0)))
+    fp = int(np.sum((y_true == 0) & (preds_b == 1)))
+    fn = int(np.sum((y_true == 1) & (preds_b == 0)))
+    cm = np.array([[tn, fp], [fn, tp]])
+    return _finish(fig_a), _confusion_fig(cm, ["Malignant", "Benign"])
+
+
+def _make_history_figs(history, p_type):
+    """Returns (loss figure, accuracy/R2 figure), train vs validation."""
+    metric = "Accuracy" if p_type in ("classification", "multiclass") else "R2"
+    figs = []
+    for key, name in (("loss", "Loss"), ("acc", metric)):
+        fig, ax = _new_fig(f"Train vs Val {name}", "Epoch", name)
+        ax.plot(history[f"train_{key}"], color=ACCENT, linewidth=1.6, label="Train")
+        ax.plot(history[f"val_{key}"], color=GREEN, linewidth=1.6, label="Validation")
+        ax.legend(fontsize=8, facecolor=CARD_BG, labelcolor=TEXT)
+        figs.append(_finish(fig))
+    return figs
 
 
 def _metrics_markdown(eval_res, p_type, elapsed, arch_str, layers):
@@ -292,69 +231,89 @@ def _metrics_markdown(eval_res, p_type, elapsed, arch_str, layers):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# WRAPPER  – injects y_true into eval_res for the confusion matrix
+# TRAINING
 # ─────────────────────────────────────────────────────────────────────────────
-_orig_evaluate_classification = evaluate_classification
-
-def _evaluate_classification_with_truth(weights, biases, activations, X_test, y_test_raw, threshold=0.5):
-    res = _orig_evaluate_classification(weights, biases, activations, X_test, y_test_raw, threshold)
-    res["y_true"] = y_test_raw.flatten()
-    return res
-
-import network as _net_module
-_net_module.evaluate_classification = _evaluate_classification_with_truth
-
-
-# Patch run_training to use the patched evaluate
-def run_training_patched(problem_type, hidden_layers_str, learning_rate, epochs, progress=gr.Progress()):
+def run_training(problem_type, hidden_layers_str, learning_rate, epochs, progress=gr.Progress()):
+    """
+    Trains the network on a train/validation split and evaluates on the test set.
+    Returns (evaluation plots, train-vs-validation history plots, metrics markdown).
+    """
     hidden = parse_hidden_layers(hidden_layers_str)
 
+    # ── Load data ────────────────────────────────
+    class_names = None
     if problem_type == "Regression":
         (X_train, X_test, y_train, y_test,
          y_train_raw, y_test_raw, _, scaling) = get_regression_data()
-        input_dim  = X_train.shape[1]
         output_dim = 1
         p_type     = "regression"
         loss_label = "MSE Loss"
+    elif problem_type == "Multiclass":
+        (X_train, X_test, y_train, y_test,
+         y_train_raw, y_test_raw, _, class_names) = get_multiclass_data()
+        output_dim = y_train.shape[1]
+        p_type     = "multiclass"
+        loss_label = "Categorical Cross-Entropy Loss"
+        scaling    = None
     else:
         (X_train, X_test, y_train, y_test,
          y_train_raw, y_test_raw, _) = get_classification_data()
-        input_dim  = X_train.shape[1]
         output_dim = 1
         p_type     = "classification"
         loss_label = "Binary Cross-Entropy Loss"
         scaling    = None
 
+    input_dim = X_train.shape[1]
     layers = [input_dim] + hidden + [output_dim]
 
-    loss_log  = []
-    lock      = threading.Lock()
+    # ── Train / validation split ──────────────────
+    tr_idx, val_idx = split_indices(len(X_train))
+    X_tr, X_val = X_train[tr_idx], X_train[val_idx]
+    y_tr, y_val = y_train[tr_idx], y_train[val_idx]
+
+    # ── Progress tracking ─────────────────────────
+    loss_log = []
+    lock     = threading.Lock()
 
     def callback(epoch, total, loss):
         with lock:
             loss_log.append(loss)
         progress(epoch / total, desc=f"Epoch {epoch}/{total}  |  Loss: {loss:.5f}")
 
+    # ── Train ─────────────────────────────────────
     t0 = time.time()
-    Ws, Bs, loss_history, activations = train_network(
-        X_train, y_train,
+    Ws, Bs, loss_history, activations, history = train_network(
+        X_tr, y_tr,
         layers=layers,
         learning_rate=learning_rate,
         epochs=int(epochs),
         problem_type=p_type,
         progress_callback=callback,
+        X_val=X_val, y_val=y_val,
     )
     elapsed = time.time() - t0
 
+    # ── Evaluate on the held-out test set ─────────
     if p_type == "regression":
         eval_res = evaluate_regression(Ws, Bs, activations, X_test, y_test, y_test_raw, scaling)
+    elif p_type == "multiclass":
+        eval_res = evaluate_multiclass(Ws, Bs, activations, X_test, y_test_raw)
+        eval_res["class_names"] = class_names
     else:
-        eval_res = _evaluate_classification_with_truth(Ws, Bs, activations, X_test, y_test_raw)
+        eval_res = evaluate_classification(Ws, Bs, activations, X_test, y_test_raw)
 
-    fig     = _make_plots(loss_history, eval_res, p_type, loss_label, layers)
-    metrics = _metrics_markdown(eval_res, p_type, elapsed, " → ".join(str(n) for n in layers), layers)
+    # ── Build outputs ─────────────────────────────
+    fig_a, fig_b = _make_plots(eval_res, p_type)
+    hist_loss, hist_acc = _make_history_figs(history, p_type)
+    arch_str = " → ".join(str(n) for n in layers)
+    metrics  = _metrics_markdown(eval_res, p_type, elapsed, arch_str, layers)
 
-    return fig, metrics
+    return (
+        fig_a,
+        gr.update(value=fig_b, visible=fig_b is not None),
+        hist_loss, hist_acc,
+        metrics,
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -443,10 +402,10 @@ def build_ui():
                         gr.Markdown("### Configuration")
 
                         problem_type = gr.Dropdown(
-                            choices=["Regression", "Classification"],
+                            choices=["Regression", "Classification", "Multiclass"],
                             value="Regression",
                             label="Task",
-                            info="Regression → California Housing  |  Classification → Breast Cancer",
+                            info="Regression → California Housing  |  Classification → Breast Cancer  |  Multiclass → Iris",
                         )
 
                         hidden_layers = gr.Textbox(
@@ -472,8 +431,11 @@ def build_ui():
                             - Hidden layers use **ReLU** activation.
                             - Regression output: **linear** + MSE loss.
                             - Classification output: **sigmoid** + Binary Cross-Entropy.
+                            - Multiclass output: **softmax** + Categorical Cross-Entropy.
                             - Weights use **He initialisation**.
                             - Optimiser: **vanilla gradient descent**.
+                            - 20% of the training data is held out as a **validation set**.
+                            - Multiclass (Iris) works best with a learning rate around 0.01.
                             """
                         )
 
@@ -482,13 +444,20 @@ def build_ui():
                     # ── Right column: outputs ────────────────────────────
                     with gr.Column(scale=2):
                         gr.Markdown("### Results")
-                        plot_out   = gr.Plot(label="Training & Evaluation Plots")
+                        gr.Markdown("#### Test Evaluation")
+                        with gr.Row():
+                            plot_a = gr.Plot(show_label=False)
+                            plot_b = gr.Plot(show_label=False)
+                        gr.Markdown("#### Train vs Validation History")
+                        with gr.Row():
+                            hist_loss_out = gr.Plot(show_label=False)
+                            hist_acc_out  = gr.Plot(show_label=False)
                         metric_out = gr.Markdown("*Metrics will appear here after training.*")
 
                 train_btn.click(
-                    fn=run_training_patched,
+                    fn=run_training,
                     inputs=[problem_type, hidden_layers, learning_rate, epochs],
-                    outputs=[plot_out, metric_out],
+                    outputs=[plot_a, plot_b, hist_loss_out, hist_acc_out, metric_out],
                 )
 
             # ════════════════════════════════════════════════════════════════
@@ -503,7 +472,7 @@ def build_ui():
 
                 with gr.Row():
                     ds_choice = gr.Dropdown(
-                        choices=["Regression", "Classification"],
+                        choices=["Regression", "Classification", "Multiclass"],
                         value="Regression",
                         label="Dataset",
                         scale=1,
@@ -544,82 +513,100 @@ def build_ui():
                 gr.Markdown(
                     """
                     # How This Neural Network Works — From Scratch
- 
+
                     Everything in this app is built using **NumPy only**. No TensorFlow. No PyTorch. No Keras.
                     Every single operation — matrix multiplication, gradient computation, weight update — is written explicitly.
                     This makes it an ideal reference for understanding what deep learning frameworks are actually doing under the hood.
- 
+
                     ---
- 
+
                     ## 1. Data Preprocessing
- 
+
                     Raw data cannot be fed directly into a neural network. Features often have very different scales —
                     for example, population counts in the thousands sitting alongside decimal fractions. If left unscaled,
                     larger-valued features will dominate the gradient updates and make training unstable or extremely slow.
- 
+
                     **Standardisation** (also called Z-score normalisation) fixes this:
- 
+
                     ```
                     X_scaled = (X - mean(X_train)) / std(X_train)
                     ```
- 
+
                     Every feature is shifted to have mean = 0 and standard deviation = 1.
                     The mean and std are computed on the **training set only**, then applied to both train and test sets.
                     This is critical — using test set statistics would constitute data leakage.
- 
+
                     For **regression**, the target values are also standardised because the output neuron produces
                     values around 0, so the target needs to live in a similar range for MSE to behave well.
                     After training, predictions are de-standardised back to the original scale:
                     ```
                     y_original = y_scaled * std(y_train) + mean(y_train)
                     ```
- 
-                    For **classification**, the target is already 0 or 1, so no scaling is needed.
- 
+
+                    For **binary classification**, the target is already 0 or 1, so no scaling is needed.
+
+                    For **multiclass classification**, the integer class label is converted to a **one-hot vector**
+                    (for example class 2 of 3 becomes `[0, 0, 1]`), one position per class.
+
                     ---
- 
-                    ## 2. Network Architecture
- 
+
+                    ## 2. Train, Validation and Test Splits
+
+                    Data is divided into three parts:
+
+                    - **Training set** — used to compute gradients and update weights.
+                    - **Validation set** — 20% of the original training data, held out during training. Loss and accuracy
+                      on this set are tracked every epoch but never used to update weights.
+                    - **Test set** — touched only once, after training, for the final honest evaluation.
+
+                    Plotting training and validation curves together reveals overfitting: if training loss keeps falling
+                    while validation loss rises, the network is memorising rather than generalising.
+                    For regression the accuracy-style curve shows **R²**, since regression has no accuracy.
+
+                    ---
+
+                    ## 3. Network Architecture
+
                     A neural network is a sequence of **layers**. Each layer holds a set of neurons, and every neuron
                     in one layer is connected to every neuron in the next (this is called a fully-connected or dense layer).
- 
+
                     The architecture is defined by a list of sizes, for example `[8, 64, 32, 16, 1]`:
                     - `8` — input neurons (one per feature)
                     - `64, 32, 16` — hidden layer neuron counts (your choice)
-                    - `1` — output neuron (single prediction)
- 
+                    - `1` — output neuron (single prediction). For multiclass this equals the number of classes.
+
                     Each connection between layers has a **weight** (how strongly one neuron influences the next)
                     and each neuron has a **bias** (a constant offset that shifts the output).
- 
+
                     ---
- 
-                    ## 3. Weight Initialisation — He Initialisation
- 
+
+                    ## 4. Weight Initialisation — He Initialisation
+
                     Before training starts, every weight must be given a starting value. Setting them all to zero fails —
                     every neuron would compute the same thing and learn identically forever (the symmetry problem).
                     Setting them too large causes the network output to explode. Too small and gradients vanish.
- 
+
                     **He initialisation** solves this for ReLU networks:
- 
+
                     ```
                     W ~ Normal(mean=0, std=sqrt(2 / fan_in))
                     ```
- 
+
                     where `fan_in` is the number of neurons feeding into this layer.
                     The factor of 2 compensates for the fact that ReLU kills roughly half of all values (the negative ones),
                     effectively halving the variance. He init keeps the variance of activations roughly constant across layers,
                     which enables stable gradient flow from the very first epoch.
- 
+
                     Biases are initialised to zero — this is safe because the random weights already break symmetry.
- 
+
                     ---
- 
-                    ## 4. Activation Functions
- 
+
+                    ## 5. Activation Functions
+
                     Activation functions introduce **non-linearity**. Without them, stacking multiple layers would
                     collapse into a single linear transformation — no matter how many layers you add.
                     Non-linearity is what allows a network to learn curved decision boundaries and complex patterns.
- 
+
                     **ReLU (Rectified Linear Unit)** — used in all hidden layers:
                     ```
                     ReLU(x) = max(0, x)
@@ -628,51 +615,59 @@ def build_ui():
                     If it's negative, it becomes zero. This sparsity (many neurons outputting zero) tends to make
                     networks train faster and generalise better. Its derivative is either 0 or 1, which makes
                     backpropagation computationally cheap.
- 
-                    **Sigmoid** — used in the output layer for classification:
+
+                    **Sigmoid** — used in the output layer for binary classification:
                     ```
                     sigmoid(x) = 1 / (1 + e^(-x))
                     ```
                     Squashes any real number into the range (0, 1), making it directly interpretable as a probability.
                     Output > 0.5 → predicted positive class (benign). Output ≤ 0.5 → predicted negative class (malignant).
- 
+
+                    **Softmax** — used in the output layer for multiclass classification:
+                    ```
+                    softmax(z_k) = e^(z_k) / Σ_j e^(z_j)
+                    ```
+                    Turns the raw outputs of all classes into probabilities that are each between 0 and 1 and sum to 1.
+                    The predicted class is the one with the highest probability. The maximum value is subtracted
+                    from every input before exponentiating, which prevents overflow without changing the result.
+
                     **Linear (Identity)** — used in the output layer for regression:
                     ```
                     linear(x) = x
                     ```
                     No transformation. The neuron just outputs its weighted sum directly, which is appropriate
                     when the target is a continuous real number with no bounded range.
- 
+
                     ---
- 
-                    ## 5. The Forward Pass
- 
+
+                    ## 6. The Forward Pass
+
                     The forward pass is how the network makes a prediction. It flows left to right through every layer.
- 
+
                     For each layer `i`:
                     ```
                     Z[i] = A[i-1] · W[i] + b[i]     ← weighted sum (linear step)
                     A[i] = activation(Z[i])            ← non-linear step
                     ```
- 
+
                     Where:
                     - `A[i-1]` is the output of the previous layer (or the raw input X for the first layer)
                     - `W[i]` is the weight matrix of shape `(neurons_in_prev_layer, neurons_in_this_layer)`
                     - `b[i]` is the bias vector of shape `(1, neurons_in_this_layer)`
                     - `Z[i]` is the pre-activation (weighted sum), cached for use in backpropagation
                     - `A[i]` is the post-activation output
- 
+
                     Both `Z` and `A` are cached for every layer during the forward pass.
                     Backpropagation will need them to compute gradients.
- 
+
                     The final layer's output `A[last]` is the network's prediction `y_pred`.
- 
+
                     ---
- 
-                    ## 6. Loss Functions
- 
+
+                    ## 7. Loss Functions
+
                     The loss function measures how wrong the prediction is. Training is the process of minimising this number.
- 
+
                     **Mean Squared Error (MSE)** — for regression:
                     ```
                     MSE = (1/n) * Σ (y_true - y_pred)²
@@ -682,51 +677,58 @@ def build_ui():
                     ```
                     dL/dy_pred = (2/n) * (y_pred - y_true)
                     ```
- 
-                    **Binary Cross-Entropy (BCE)** — for classification:
+
+                    **Binary Cross-Entropy (BCE)** — for binary classification:
                     ```
                     BCE = -(1/n) * Σ [ y_true * log(y_pred) + (1 - y_true) * log(1 - y_pred) ]
                     ```
                     This measures the difference between two probability distributions — the predicted probabilities
                     and the true labels. When the prediction is confident and correct (e.g. y_pred = 0.99, y_true = 1),
                     the loss is near zero. When it's confident and wrong, the loss becomes very large.
- 
+
+                    **Categorical Cross-Entropy (CCE)** — for multiclass classification:
+                    ```
+                    CCE = -(1/n) * Σ_samples Σ_classes [ y_true_k * log(y_pred_k) ]
+                    ```
+                    The same idea as BCE extended to many classes. Because the true label is one-hot, only the
+                    log-probability assigned to the correct class contributes to the loss.
+
                     A small epsilon (1e-15) is clipped into y_pred to prevent `log(0)` which would give negative infinity.
- 
-                    When BCE is paired with a sigmoid output, their gradients combine elegantly:
+
+                    When BCE is paired with a sigmoid output, or CCE with a softmax output, their gradients combine elegantly:
                     ```
                     dL/dZ_output = (y_pred - y_true) / n
                     ```
                     This combined gradient is what's used at the output layer during backpropagation.
- 
+
                     ---
- 
-                    ## 7. The Backward Pass — Backpropagation
- 
+
+                    ## 8. The Backward Pass — Backpropagation
+
                     Backpropagation is the algorithm for computing how much each weight contributed to the loss.
                     It uses the **chain rule of calculus** to propagate the gradient of the loss backwards through every layer.
- 
+
                     The key insight: the gradient of the loss with respect to a weight deep in the network
                     is the product of all the gradients along the path from that weight to the output.
- 
+
                     **Starting at the output layer:**
- 
+
                     For regression (MSE + linear output):
                     ```
                     dL/dZ_out = (2/n) * (y_pred - y_true)
                     ```
- 
-                    For classification (BCE + sigmoid output, combined):
+
+                    For classification (BCE + sigmoid, or CCE + softmax, combined):
                     ```
                     dL/dZ_out = (y_pred - y_true) / n
                     ```
- 
+
                     Then for the output layer's weights and biases:
                     ```
                     dL/dW_out = A_prev.T · dL/dZ_out
                     dL/db_out = sum(dL/dZ_out, axis=0)
                     ```
- 
+
                     **Propagating through each hidden layer** (going backwards, from last hidden to first):
                     ```
                     dL/dA_current = dL/dZ_next · W_next.T           ← how much this layer's output affected the loss
@@ -734,81 +736,87 @@ def build_ui():
                     dL/dW_current = A_prev.T · dL/dZ_current        ← gradient for this layer's weights
                     dL/db_current = sum(dL/dZ_current, axis=0)      ← gradient for this layer's biases
                     ```
- 
+
                     The `activation'(Z)` for ReLU is simply 1 where Z > 0 and 0 everywhere else — a very cheap operation.
- 
+
                     ---
- 
-                    ## 8. Parameter Update — Gradient Descent
- 
+
+                    ## 9. Parameter Update — Gradient Descent
+
                     Once gradients are known, every weight and bias is updated by taking a small step
                     in the direction that reduces the loss:
- 
+
                     ```
                     W = W - α * dL/dW
                     b = b - α * dL/db
                     ```
- 
+
                     `α` (alpha) is the **learning rate** — a hyperparameter you control with the slider.
                     It decides the size of each update step.
- 
+
                     - Too large → the loss oscillates or diverges (overshooting the minimum)
                     - Too small → training takes extremely long to converge
-                    - A value around 0.001 is a solid default for most problems here
- 
+                    - A value around 0.001 is a solid default for the larger datasets here
+
                     This is **vanilla gradient descent** — one update per full pass over the data (one epoch).
                     Production systems typically use mini-batch gradient descent or adaptive optimisers like Adam,
                     but the core principle is identical.
- 
+
                     ---
- 
-                    ## 9. The Training Loop
- 
-                    One complete training run repeats these four steps for every epoch:
- 
+
+                    ## 10. The Training Loop
+
+                    One complete training run repeats these steps for every epoch:
+
                     ```
                     for epoch in 1 to N:
                         y_pred, caches = forward(X_train, weights, biases)
                         loss           = compute_loss(y_train, y_pred)
+                        record train loss / accuracy, and validation loss / accuracy
                         gradients      = backward(X_train, y_train, y_pred, caches, weights)
                         weights, biases= update(weights, biases, gradients, learning_rate)
                     ```
- 
+
                     The loss should decrease steadily across epochs. A flat or increasing loss means the learning
                     rate is too high, the network is too shallow, or the data needs better preprocessing.
- 
+
                     ---
- 
-                    ## 10. Evaluation
- 
+
+                    ## 11. Evaluation
+
                     After training, the network is evaluated on the **test set** — data it has never seen.
                     This gives an honest estimate of how well it generalises.
- 
+
                     **Regression metrics:**
                     - **MSE** (on standardised scale) — training loss reference
                     - **MAE** (Mean Absolute Error, original scale) — average absolute mistake in the original units (e.g. $100k)
                     - **R² Score** — proportion of variance in the target explained by the model. R² = 1.0 is perfect. R² = 0 means the model is no better than predicting the mean every time.
- 
+
                     **Classification metrics:**
                     - **Accuracy** — percentage of test samples correctly classified
-                    - **Confusion Matrix** — breaks down predictions into True Positives, True Negatives, False Positives, and False Negatives, revealing which class the model struggles with
- 
+                    - **Confusion Matrix** — shows, for every actual class, which class the model predicted, revealing which classes it confuses
+
                     ---
- 
-                    ## 11. Datasets
- 
+
+                    ## 12. Datasets
+
                     **California Housing** (Regression)
                     20,640 housing blocks from the 1990 California census. Each row describes a block group
                     with 8 features: median income, house age, average rooms, average bedrooms, population,
                     average occupancy, latitude, and longitude. The target is the median house value in units of $100,000.
                     This is a well-studied benchmark regression dataset.
- 
-                    **Breast Cancer Wisconsin** (Classification)
+
+                    **Breast Cancer Wisconsin** (Binary Classification)
                     569 cell nucleus measurements from fine needle aspirate (FNA) biopsies.
                     30 features describe properties of the cell nuclei: radius, texture, perimeter, area, smoothness,
                     compactness, concavity, concave points, symmetry, and fractal dimension — each measured as mean,
                     standard error, and worst value. Target: 0 = malignant, 1 = benign.
                     This is a classic binary classification benchmark in medical machine learning.
+
+                    **Iris** (Multiclass Classification)
+                    150 flower measurements across 3 species (setosa, versicolor, virginica), with 4 features each:
+                    sepal length, sepal width, petal length and petal width.
+                    A small, classic benchmark for multiclass classification.
                     """
                 )
 
